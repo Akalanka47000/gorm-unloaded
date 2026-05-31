@@ -1,12 +1,12 @@
 package db
 
 import (
+	"database/sql"
 	"fmt"
+	"net/url"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	_ "github.com/jackc/pgx/v5/stdlib"
-	"github.com/jmoiron/sqlx"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -17,32 +17,35 @@ import (
 // The function signature is pretty much the same as gorm.Open and works the same while doing the additional work of creating a temporary database for the caller's example.
 // It accepts an optional gorm.Config parameter, allowing for flexible configuration of the database connection.
 // If no configuration is provided, it defaults to an empty gorm.Config.
-func MustNew(config ...gorm.Config) *gorm.DB {
+func MustNew(config ...*gorm.Config) *gorm.DB {
 	dsn := strings.ReplaceAll(PrimaryDSN, "root", callerExampleName())
 	err := createTemporaryDatabase(dsn)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create temporary database: %s", err))
 	}
 	if len(config) == 0 {
-		config = append(config, gorm.Config{})
+		config = append(config, &gorm.Config{})
 	}
-	db, err := gorm.Open(postgres.Open(dsn), &config[0])
+	db, err := gorm.Open(postgres.Open(dsn), config[0])
 	if err != nil {
 		panic(fmt.Sprintf("failed to connect to database: %s", err))
 	}
-	fmt.Printf("\033[32mConnected to database:\033[0m \033[1m%s\033[0m\n", db.Migrator().CurrentDatabase())
+	fmt.Printf("\n\033[32mConnected to database:\033[0m \033[1m%s\033[0m\n\n", db.Migrator().CurrentDatabase())
 	return db
 }
 
 // createTemporaryDatabase creates a temporary database using the provided DSN.
 // It parses the DSN to extract the database name and then connects to the PostgreSQL server to create a new database with that name.
 func createTemporaryDatabase(dsn string) error {
-	cfg, err := pgx.ParseConfig(dsn)
+	u, err := url.Parse(dsn)
 	if err != nil {
 		return fmt.Errorf("failed to parse DSN: %w", err)
 	}
 
-	db, err := sqlx.Open("pgx", strings.ReplaceAll(dsn, cfg.Database, ""))
+	dbName := strings.TrimPrefix(u.Path, "/")
+	u.Path = "/"
+
+	db, err := sql.Open("pgx", u.String())
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -53,12 +56,12 @@ func createTemporaryDatabase(dsn string) error {
 	}()
 
 	var exists bool
-	if err = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)`, cfg.Database).Scan(&exists); err != nil {
+	if err = db.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)`, dbName).Scan(&exists); err != nil {
 		return fmt.Errorf("failed to check if database exists: %w", err)
 	}
 
 	if !exists {
-		if _, err = db.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, cfg.Database)); err != nil {
+		if _, err = db.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, dbName)); err != nil {
 			return fmt.Errorf("failed to create test database: %w", err)
 		}
 	}

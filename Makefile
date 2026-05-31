@@ -19,3 +19,10 @@ infra-rebuild:
 	@echo "Rebuilding infrastructure..."
 	@make infra-clean
 	@make infra-up
+
+# Run an example by number, ignoring leading zeros in directory names.
+# Usage: make demo N=2
+demo:
+	@dir=$$(ls examples/ | awk -F'-' -v n=$(N) 'int($$1)==n' | head -1); \
+	if [ -z "$$dir" ]; then echo "Error: example $(N) not found"; exit 1; fi; \
+	go run ./examples/$$dir/...
